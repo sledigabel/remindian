@@ -1,5 +1,7 @@
 # remindian
 
+![remindian](./img/remindian.png)
+
 Automated reminder manager sourced from Obsidian check lists (initial scaffold).
 
 ## Development

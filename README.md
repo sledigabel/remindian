@@ -9,9 +9,9 @@ Build the project:
 make build
 ```
 
-Run the CLI (optionally pass a name):
+Run the CLI on a markdown file:
 ```
-make run ARGS="Alice"
+make run ARGS="path/to/file.md"
 ```
 
 Run tests:
@@ -25,6 +25,8 @@ make clean
 ```
 
 ## Next Steps
-- Parse Obsidian checklist files
+- Support completed tasks parsing (- [x])
+- Extract metadata (dates, tags) beyond Obsidian comments
 - Map checklist items to reminders
 - Schedule and sync with Reminders API
+- Provide dedicated examples repository with diverse fixtures

@@ -25,7 +25,10 @@ let package = Package(
         .testTarget(
             name: "RemindianCoreTests",
             dependencies: ["RemindianCore"],
-            path: "Tests/RemindianCoreTests"
+            path: "Tests/RemindianCoreTests",
+            resources: [
+                .process("Fixtures")
+            ]
         )
     ]
 )

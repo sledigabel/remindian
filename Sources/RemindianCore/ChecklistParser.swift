@@ -15,11 +15,11 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
 public struct ChecklistParser {
     // Pattern enforces:
     // - optional leading indentation
-    // - hyphen, exactly one space, then [] with no spaces inside
+    // - hyphen, exactly one space, then [] or [x]/[X] (no spaces inside)
     // - exactly one space after ] before text
     // - capture text until optional Obsidian comment (%% ... %%) or line end
     // - optional trailing whitespace
-    private static let pattern = "^[\\t ]*- \\[[\\t]*\\] ([^%\\n]*?)(?:[\\t ]*%%(.*?)%%)?[\\t ]*$"
+    private static let pattern = "^[\\t ]*- \\[(?:[xX])?\\] ([^%\\n]*?)(?:[\\t ]*%%(.*?)%%)?[\\t ]*$"
     private static let regex: NSRegularExpression = {
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()

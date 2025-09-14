@@ -10,6 +10,20 @@ class ChecklistParserTests: XCTestCase {
         XCTAssertNil(items.first?.comment)
     }
 
+    func testParsesCheckedLineLowercase() {
+        let input = "- [x] completed task"
+        let items = ChecklistParser.parseLines(input)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.text, "completed task")
+    }
+
+    func testParsesCheckedLineUppercase() {
+        let input = "- [X] done task"
+        let items = ChecklistParser.parseLines(input)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.text, "done task")
+    }
+
     func testParsesIndentedLine() {
         let input = "\t   - [] another reminder"
         let items = ChecklistParser.parseLines(input)

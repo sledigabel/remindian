@@ -1,8 +1,8 @@
 Random header
 
-	   - [] indented task one
+	   - [x] indented task one
 Note: something else
 - [] task two  %% meta %%
-- []  trailing spaces   %% comment with spaces %%   
-    - [] final valid
+- [x]  trailing spaces   %% comment with spaces %%   
+    - [X] final valid
 -  [] invalid

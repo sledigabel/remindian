@@ -34,6 +34,12 @@ public struct ChecklistParser {
     private static let regex: NSRegularExpression = {
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
+    
+    // Regex pattern to extract comment number
+    private static let commentNumberPattern = "COMMENT (\\d+)"
+    private static let commentNumberRegex: NSRegularExpression = {
+        return try! NSRegularExpression(pattern: commentNumberPattern, options: [])
+    }()
 
     public static func parseLines(_ content: String, list: String = "remindian") -> [ChecklistItem]
     {
@@ -73,5 +79,69 @@ public struct ChecklistParser {
             return ""
         }
         return String(line[swiftRange])
+    }
+    
+    public static func rewriteFile(at url: URL, outputURL: URL? = nil) throws -> URL {
+        let content = try String(contentsOf: url)
+        let lines = content.components(separatedBy: .newlines)
+        var rewrittenLines = [String]()
+        
+        for line in lines {
+            if let match = regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count)) {
+                let rewrittenLine = rewriteReminderLine(line: line, match: match)
+                rewrittenLines.append(rewrittenLine)
+            } else {
+                rewrittenLines.append(line)
+            }
+        }
+        
+        let rewrittenContent = rewrittenLines.joined(separator: "\n")
+        let destinationURL = outputURL ?? url
+        try rewrittenContent.write(to: destinationURL, atomically: true, encoding: .utf8)
+        
+        return destinationURL
+    }
+    
+    private static func rewriteReminderLine(line: String, match: NSTextCheckingResult) -> String {
+        guard match.numberOfRanges >= 3 else { return line }
+        
+        let titleRange = match.range(at: 2)
+        let commentRange = match.numberOfRanges > 3 ? match.range(at: 3) : .init(location: NSNotFound, length: 0)
+        
+        if commentRange.location == NSNotFound {
+            // No comment found, add "COMMENT 1"
+            return line.prefix(upTo: (line.utf16.count > titleRange.location + titleRange.length) ? String.Index(utf16Offset: titleRange.location + titleRange.length, in: line) : line.endIndex) + "  %% COMMENT 1 %%"
+        } else {
+            // Comment found, increment number
+            let comment = substring(line, range: commentRange)
+            let updatedComment = updateCommentNumber(comment)
+            
+            // Rebuild the line with the updated comment
+            var lineComponents = [String]()
+            
+            // Add everything before the comment
+            if let commentStartIndex = line.range(of: "%%", options: .literal)?.lowerBound {
+                lineComponents.append(String(line.prefix(upTo: commentStartIndex)))
+            }
+            
+            // Add the updated comment
+            lineComponents.append("%% \(updatedComment) %%")
+            
+            return lineComponents.joined()
+        }
+    }
+    
+    private static func updateCommentNumber(_ comment: String) -> String {
+        if let match = commentNumberRegex.firstMatch(in: comment, options: [], range: NSRange(location: 0, length: comment.utf16.count)),
+           match.numberOfRanges > 1 {
+            let numberRange = match.range(at: 1)
+            if let number = Int(substring(comment, range: numberRange)) {
+                let nextNumber = number + 1
+                return "COMMENT \(nextNumber)"
+            }
+        }
+        
+        // If no number pattern found or can't parse number, add "COMMENT 1"
+        return "COMMENT 1"
     }
 }

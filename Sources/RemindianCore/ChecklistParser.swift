@@ -12,43 +12,46 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
 
     // Backwards compatibility (tests previously referenced text)
     public var text: String { title }
-    
+
     // Regular expression for identifying comment numbers
     private static let commentNumberPattern = "COMMENT (\\d+)"
-    private static let commentNumberRegex = try! NSRegularExpression(pattern: commentNumberPattern, options: [])
-    
-    public func updateComment() -> ChecklistItem {
+    private static let commentNumberRegex = try! NSRegularExpression(
+        pattern: commentNumberPattern, options: [])
+
+    public func updateReminder() -> ChecklistItem {
         let newComment = ChecklistItem.incrementCommentNumber(comment)
         return ChecklistItem(
-            rawLine: rawLine, 
-            checked: checked, 
-            title: title, 
-            comment: newComment, 
-            lineNumber: lineNumber, 
+            rawLine: rawLine,
+            checked: checked,
+            title: title,
+            comment: newComment,
+            lineNumber: lineNumber,
             list: list
         )
     }
-    
+
     private static func incrementCommentNumber(_ comment: String?) -> String {
         guard let comment = comment else {
             return "COMMENT 1"
         }
-        
+
         if let match = commentNumberRegex.firstMatch(
             in: comment, options: [], range: NSRange(location: 0, length: comment.utf16.count)),
-           match.numberOfRanges > 1 {
+            match.numberOfRanges > 1
+        {
             let numberRange = match.range(at: 1)
             if let swiftRange = Range(numberRange, in: comment),
-               let number = Int(comment[swiftRange]) {
+                let number = Int(comment[swiftRange])
+            {
                 let nextNumber = number + 1
                 return "COMMENT \(nextNumber)"
             }
         }
-        
+
         // If no number pattern found or can't parse number, default to "COMMENT 1"
         return "COMMENT 1"
     }
-    
+
     public var description: String {
         let status = checked ? "[x]" : "[ ]"
         if let comment {
@@ -56,12 +59,12 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
         }
         return "[\(list) | line: \(lineNumber)] \(status) \(title)"
     }
-    
+
     public func toString() -> String {
         // Extract indentation from the original line
         let indentation = String(rawLine.prefix(while: { $0 == " " || $0 == "\t" }))
         let checkmark = checked ? "[x]" : "[ ]"
-        
+
         if let comment = comment {
             return "\(indentation)- \(checkmark) \(title)  %% \(comment) %%"
         } else {
@@ -83,7 +86,7 @@ public struct ChecklistParser {
     private static let regex: NSRegularExpression = {
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
-    
+
     // No longer need the comment number regex here as it's moved to ChecklistItem
 
     public static func parseLines(_ content: String, list: String = "remindian") -> [ChecklistItem]
@@ -125,21 +128,21 @@ public struct ChecklistParser {
         }
         return String(line[swiftRange])
     }
-    
+
     public static func rewriteFile(at url: URL, outputURL: URL? = nil) throws -> URL {
         let content = try String(contentsOf: url)
-        
+
         // Parse the content into ChecklistItems
         let allLines = content.components(separatedBy: .newlines)
         let items = parseLines(content)
-        
+
         // Create a dictionary of line numbers to updated items
         var updatedItemsByLine: [Int: ChecklistItem] = [:]
         for item in items {
             let updatedItem = updateReminder(item)
             updatedItemsByLine[updatedItem.lineNumber] = updatedItem
         }
-        
+
         // Rewrite each line, using the updated item if it exists
         var rewrittenLines = [String]()
         for (index, line) in allLines.enumerated() {
@@ -150,15 +153,15 @@ public struct ChecklistParser {
                 rewrittenLines.append(line)
             }
         }
-        
+
         let rewrittenContent = rewrittenLines.joined(separator: "\n")
         let destinationURL = outputURL ?? url
         try rewrittenContent.write(to: destinationURL, atomically: true, encoding: .utf8)
-        
+
         return destinationURL
     }
-    
+
     public static func updateReminder(_ item: ChecklistItem) -> ChecklistItem {
-        return item.updateComment()
+        return item.updateReminder()
     }
 }

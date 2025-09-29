@@ -6,6 +6,7 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
     public let title: String
     public let comment: String?
     public let lineNumber: Int
+    public let list: String
 
     public var hasComment: Bool { comment != nil }
 
@@ -14,8 +15,10 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
 
     public var description: String {
         let status = checked ? "[x]" : "[ ]"
-        if let comment { return "[line: \(lineNumber)] \(status) \(title) (comment: \(comment))" }
-        return "[line: \(lineNumber)] \(status) \(title)"
+        if let comment {
+            return "[\(list) | line: \(lineNumber)] \(status) \(title) (comment: \(comment))"
+        }
+        return "[\(list) | line: \(lineNumber)] \(status) \(title)"
     }
 }
 
@@ -32,28 +35,43 @@ public struct ChecklistParser {
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
 
-    public static func parseLines(_ content: String) -> [ChecklistItem] {
+    public static func parseLines(_ content: String, list: String = "remindian") -> [ChecklistItem]
+    {
         var results: [ChecklistItem] = []
         let lines = content.components(separatedBy: .newlines)
         for (idx, line) in lines.enumerated() {
-            guard let match = regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count)) else { continue }
+            guard
+                let match = regex.firstMatch(
+                    in: line, options: [], range: NSRange(location: 0, length: line.utf16.count))
+            else { continue }
             guard match.numberOfRanges >= 3 else { continue }
             let checkedRange = match.range(at: 1)
             let titleRange = match.range(at: 2)
-            let commentRange = match.numberOfRanges > 3 ? match.range(at: 3) : .init(location: NSNotFound, length: 0)
+            let commentRange =
+                match.numberOfRanges > 3
+                ? match.range(at: 3) : .init(location: NSNotFound, length: 0)
 
             let checkedToken = substring(line, range: checkedRange)
             let checked = !checkedToken.isEmpty
-            let title = substring(line, range: titleRange).trimmingCharacters(in: .whitespacesAndNewlines)
-            let comment = commentRange.location != NSNotFound ? substring(line, range: commentRange).trimmingCharacters(in: .whitespacesAndNewlines) : nil
+            let title = substring(line, range: titleRange).trimmingCharacters(
+                in: .whitespacesAndNewlines)
+            let comment =
+                commentRange.location != NSNotFound
+                ? substring(line, range: commentRange).trimmingCharacters(
+                    in: .whitespacesAndNewlines) : nil
             guard !title.isEmpty else { continue }
-            results.append(ChecklistItem(rawLine: line, checked: checked, title: title, comment: comment, lineNumber: idx + 1))
+            results.append(
+                ChecklistItem(
+                    rawLine: line, checked: checked, title: title, comment: comment,
+                    lineNumber: idx + 1, list: list))
         }
         return results
     }
 
     private static func substring(_ line: String, range: NSRange) -> String {
-        guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else { return "" }
+        guard range.location != NSNotFound, let swiftRange = Range(range, in: line) else {
+            return ""
+        }
         return String(line[swiftRange])
     }
 }

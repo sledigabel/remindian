@@ -10,6 +10,7 @@ class ChecklistParserTests: XCTestCase {
         XCTAssertFalse(items.first!.checked)
         XCTAssertFalse(items.first!.hasComment)
         XCTAssertNil(items.first?.comment)
+        XCTAssertEqual(items.first?.list, "remindian")  // Default list name
     }
 
     func testParsesCheckedLineLowercase() {
@@ -91,5 +92,13 @@ class ChecklistParserTests: XCTestCase {
         let input = "- [] bad line %% unclosed comment"
         let items = ChecklistParser.parseLines(input)
         XCTAssertTrue(items.isEmpty)
+    }
+    
+    func testCustomListName() {
+        let input = "- [] task in custom list"
+        let listName = "work-H2-2025"
+        let items = ChecklistParser.parseLines(input, list: listName)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.list, listName)
     }
 }

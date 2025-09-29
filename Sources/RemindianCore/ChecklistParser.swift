@@ -12,13 +12,61 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
 
     // Backwards compatibility (tests previously referenced text)
     public var text: String { title }
-
+    
+    // Regular expression for identifying comment numbers
+    private static let commentNumberPattern = "COMMENT (\\d+)"
+    private static let commentNumberRegex = try! NSRegularExpression(pattern: commentNumberPattern, options: [])
+    
+    public func updateComment() -> ChecklistItem {
+        let newComment = ChecklistItem.incrementCommentNumber(comment)
+        return ChecklistItem(
+            rawLine: rawLine, 
+            checked: checked, 
+            title: title, 
+            comment: newComment, 
+            lineNumber: lineNumber, 
+            list: list
+        )
+    }
+    
+    private static func incrementCommentNumber(_ comment: String?) -> String {
+        guard let comment = comment else {
+            return "COMMENT 1"
+        }
+        
+        if let match = commentNumberRegex.firstMatch(
+            in: comment, options: [], range: NSRange(location: 0, length: comment.utf16.count)),
+           match.numberOfRanges > 1 {
+            let numberRange = match.range(at: 1)
+            if let swiftRange = Range(numberRange, in: comment),
+               let number = Int(comment[swiftRange]) {
+                let nextNumber = number + 1
+                return "COMMENT \(nextNumber)"
+            }
+        }
+        
+        // If no number pattern found or can't parse number, default to "COMMENT 1"
+        return "COMMENT 1"
+    }
+    
     public var description: String {
         let status = checked ? "[x]" : "[ ]"
         if let comment {
             return "[\(list) | line: \(lineNumber)] \(status) \(title) (comment: \(comment))"
         }
         return "[\(list) | line: \(lineNumber)] \(status) \(title)"
+    }
+    
+    public func toString() -> String {
+        // Extract indentation from the original line
+        let indentation = String(rawLine.prefix(while: { $0 == " " || $0 == "\t" }))
+        let checkmark = checked ? "[x]" : "[ ]"
+        
+        if let comment = comment {
+            return "\(indentation)- \(checkmark) \(title)  %% \(comment) %%"
+        } else {
+            return "\(indentation)- \(checkmark) \(title)"
+        }
     }
 }
 
@@ -30,16 +78,13 @@ public struct ChecklistParser {
     // - capture text until optional Obsidian comment (%% ... %%) or line end
     // - optional spaces/tabs before the opening %%
     // - optional trailing whitespace
-    private static let pattern = "^[\\t ]*- \\[([xX]?)\\] ([^%\\n]*?)(?:[\\t ]*%%(.*?)%%)?[\\t ]*$"
+    // - Note: We allow for a space inside the brackets to handle formatted output
+    private static let pattern = "^[\\t ]*- \\[([xX ]?)\\] ([^%\\n]*?)(?:[\\t ]*%%(.*?)%%)?[\\t ]*$"
     private static let regex: NSRegularExpression = {
         return try! NSRegularExpression(pattern: pattern, options: [])
     }()
     
-    // Regex pattern to extract comment number
-    private static let commentNumberPattern = "COMMENT (\\d+)"
-    private static let commentNumberRegex: NSRegularExpression = {
-        return try! NSRegularExpression(pattern: commentNumberPattern, options: [])
-    }()
+    // No longer need the comment number regex here as it's moved to ChecklistItem
 
     public static func parseLines(_ content: String, list: String = "remindian") -> [ChecklistItem]
     {
@@ -83,13 +128,24 @@ public struct ChecklistParser {
     
     public static func rewriteFile(at url: URL, outputURL: URL? = nil) throws -> URL {
         let content = try String(contentsOf: url)
-        let lines = content.components(separatedBy: .newlines)
-        var rewrittenLines = [String]()
         
-        for line in lines {
-            if let match = regex.firstMatch(in: line, options: [], range: NSRange(location: 0, length: line.utf16.count)) {
-                let rewrittenLine = rewriteReminderLine(line: line, match: match)
-                rewrittenLines.append(rewrittenLine)
+        // Parse the content into ChecklistItems
+        let allLines = content.components(separatedBy: .newlines)
+        let items = parseLines(content)
+        
+        // Create a dictionary of line numbers to updated items
+        var updatedItemsByLine: [Int: ChecklistItem] = [:]
+        for item in items {
+            let updatedItem = updateReminder(item)
+            updatedItemsByLine[updatedItem.lineNumber] = updatedItem
+        }
+        
+        // Rewrite each line, using the updated item if it exists
+        var rewrittenLines = [String]()
+        for (index, line) in allLines.enumerated() {
+            let lineNumber = index + 1
+            if let updatedItem = updatedItemsByLine[lineNumber] {
+                rewrittenLines.append(updatedItem.toString())
             } else {
                 rewrittenLines.append(line)
             }
@@ -102,46 +158,7 @@ public struct ChecklistParser {
         return destinationURL
     }
     
-    private static func rewriteReminderLine(line: String, match: NSTextCheckingResult) -> String {
-        guard match.numberOfRanges >= 3 else { return line }
-        
-        let titleRange = match.range(at: 2)
-        let commentRange = match.numberOfRanges > 3 ? match.range(at: 3) : .init(location: NSNotFound, length: 0)
-        
-        if commentRange.location == NSNotFound {
-            // No comment found, add "COMMENT 1"
-            return line.prefix(upTo: (line.utf16.count > titleRange.location + titleRange.length) ? String.Index(utf16Offset: titleRange.location + titleRange.length, in: line) : line.endIndex) + "  %% COMMENT 1 %%"
-        } else {
-            // Comment found, increment number
-            let comment = substring(line, range: commentRange)
-            let updatedComment = updateCommentNumber(comment)
-            
-            // Rebuild the line with the updated comment
-            var lineComponents = [String]()
-            
-            // Add everything before the comment
-            if let commentStartIndex = line.range(of: "%%", options: .literal)?.lowerBound {
-                lineComponents.append(String(line.prefix(upTo: commentStartIndex)))
-            }
-            
-            // Add the updated comment
-            lineComponents.append("%% \(updatedComment) %%")
-            
-            return lineComponents.joined()
-        }
-    }
-    
-    private static func updateCommentNumber(_ comment: String) -> String {
-        if let match = commentNumberRegex.firstMatch(in: comment, options: [], range: NSRange(location: 0, length: comment.utf16.count)),
-           match.numberOfRanges > 1 {
-            let numberRange = match.range(at: 1)
-            if let number = Int(substring(comment, range: numberRange)) {
-                let nextNumber = number + 1
-                return "COMMENT \(nextNumber)"
-            }
-        }
-        
-        // If no number pattern found or can't parse number, add "COMMENT 1"
-        return "COMMENT 1"
+    public static func updateReminder(_ item: ChecklistItem) -> ChecklistItem {
+        return item.updateComment()
     }
 }

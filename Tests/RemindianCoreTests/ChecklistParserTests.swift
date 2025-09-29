@@ -139,7 +139,7 @@ class ChecklistParserTests: XCTestCase {
         let rewrittenContent = try String(contentsOf: rewrittenFile)
         
         // Verify comments were added
-        XCTAssertTrue(rewrittenContent.contains("- [] Task without comment  %% COMMENT 1 %%"))
+        XCTAssertTrue(rewrittenContent.contains("- [ ] Task without comment  %% COMMENT 1 %%"))
         XCTAssertTrue(rewrittenContent.contains("- [x] Another task  %% COMMENT 1 %%"))
         
         // Verify unrelated content is preserved
@@ -167,11 +167,11 @@ class ChecklistParserTests: XCTestCase {
         let rewrittenContent = try String(contentsOf: rewrittenFile)
         
         // Verify comment numbers were incremented
-        XCTAssertTrue(rewrittenContent.contains("- [] Task with comment  %% COMMENT 2 %%"))
+        XCTAssertTrue(rewrittenContent.contains("- [ ] Task with comment  %% COMMENT 2 %%"))
         XCTAssertTrue(rewrittenContent.contains("- [x] Another task with comment  %% COMMENT 4 %%"))
         
         // Verify other comments are replaced with COMMENT 1
-        XCTAssertTrue(rewrittenContent.contains("- [] Task with other comment  %% COMMENT 1 %%"))
+        XCTAssertTrue(rewrittenContent.contains("- [ ] Task with other comment  %% COMMENT 1 %%"))
     }
     
     func testRewriteToOutputFile() throws {
@@ -198,6 +198,47 @@ class ChecklistParserTests: XCTestCase {
         
         // Output file should have comments
         let outputContent = try String(contentsOf: outputFile)
-        XCTAssertTrue(outputContent.contains("- [] Task without comment  %% COMMENT 1 %%"))
+        XCTAssertTrue(outputContent.contains("- [ ] Task without comment  %% COMMENT 1 %%"))
+    }
+    
+    func testUpdateReminder() {
+        // Test with no comment
+        let item1 = ChecklistItem(
+            rawLine: "- [] Task without comment",
+            checked: false,
+            title: "Task without comment",
+            comment: nil,
+            lineNumber: 1,
+            list: "test"
+        )
+        let updated1 = ChecklistParser.updateReminder(item1)
+        XCTAssertEqual(updated1.comment, "COMMENT 1")
+        XCTAssertEqual(updated1.toString(), "- [ ] Task without comment  %% COMMENT 1 %%")
+        
+        // Test with comment that has a number
+        let item2 = ChecklistItem(
+            rawLine: "- [x] Task with number  %% COMMENT 3 %%",
+            checked: true,
+            title: "Task with number",
+            comment: "COMMENT 3",
+            lineNumber: 2,
+            list: "test"
+        )
+        let updated2 = ChecklistParser.updateReminder(item2)
+        XCTAssertEqual(updated2.comment, "COMMENT 4")
+        XCTAssertEqual(updated2.toString(), "- [x] Task with number  %% COMMENT 4 %%")
+        
+        // Test with comment that doesn't have a number
+        let item3 = ChecklistItem(
+            rawLine: "- [] Task with other comment  %% Other comment %%",
+            checked: false,
+            title: "Task with other comment",
+            comment: "Other comment",
+            lineNumber: 3,
+            list: "test"
+        )
+        let updated3 = ChecklistParser.updateReminder(item3)
+        XCTAssertEqual(updated3.comment, "COMMENT 1")
+        XCTAssertEqual(updated3.toString(), "- [ ] Task with other comment  %% COMMENT 1 %%")
     }
 }

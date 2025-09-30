@@ -11,16 +11,18 @@ func printUsage() {
         Options:
           --list <list-name>    Specify which list reminders belong to (default: "remindian")
           --output <file>       Output to a different file (implies file rewriting)
+          --rewrite             Rewrite the original file with updates
         """
     )
 }
 
+// Parse arguments
 let args = Array(CommandLine.arguments.dropFirst())
 var listName = "remindian"  // Default list name
 var filePath: String? = nil
 var outputPath: String? = nil
+var shouldRewrite = false   // Flag to control rewriting the original file
 
-// Parse arguments
 var i = 0
 while i < args.count {
     let arg = args[i]
@@ -40,6 +42,9 @@ while i < args.count {
         }
         outputPath = args[i + 1]
         i += 2
+    } else if arg == "--rewrite" {
+        shouldRewrite = true
+        i += 1
     } else {
         // First non-option argument is the file path
         filePath = arg
@@ -59,32 +64,57 @@ guard FileManager.default.fileExists(atPath: url.path) else {
     exit(2)
 }
 
-do {
-    // Check if we should rewrite (based on presence of outputPath)
-    if outputPath != nil {
-        let outputURL = URL(fileURLWithPath: outputPath!)
+// Run the async processing in Task
+Task {
+    do {
+        let localListName = listName // Local copy to avoid async issues
         
-        let resultURL = try ChecklistParser.rewriteFile(at: url, outputURL: outputURL)
-        print("File has been rewritten: \(resultURL.path)")
-        
-        // Display the reminders in the rewritten file
-        let rewrittenData = try String(contentsOf: resultURL)
-        let items = ChecklistParser.parseLines(rewrittenData, list: listName)
-        if !items.isEmpty {
-            print("\nReminders in the rewritten file:")
-            for item in items { print(item.description) }
-        }
-    } else {
-        // Original behavior - just parse and display
-        let data = try String(contentsOf: url)
-        let items = ChecklistParser.parseLines(data, list: listName)
-        if items.isEmpty {
-            print("No reminders found in file: \(url.path)")
+        // Check if we should rewrite (based on presence of outputPath or shouldRewrite flag)
+        if let outputPathValue = outputPath {
+            // Rewrite to a different file
+            let outputURL = URL(fileURLWithPath: outputPathValue)
+            
+            let resultURL = try await ChecklistParser.rewriteFile(at: url, outputURL: outputURL)
+            print("File has been rewritten: \(resultURL.path)")
+            
+            // Display the reminders in the rewritten file
+            let rewrittenData = try String(contentsOf: resultURL)
+            let items = ChecklistParser.parseLines(rewrittenData, list: localListName)
+            if !items.isEmpty {
+                print("\nReminders in the rewritten file:")
+                for item in items { print(item.description) }
+            }
+        } else if shouldRewrite {
+            // Rewrite the original file
+            let resultURL = try await ChecklistParser.rewriteFile(at: url)
+            print("Original file has been rewritten: \(resultURL.path)")
+            
+            // Display the reminders in the rewritten file
+            let rewrittenData = try String(contentsOf: resultURL)
+            let items = ChecklistParser.parseLines(rewrittenData, list: localListName)
+            if !items.isEmpty {
+                print("\nReminders in the rewritten file:")
+                for item in items { print(item.description) }
+            }
         } else {
-            for item in items { print(item.description) }
+            // Original behavior - just parse and display
+            let data = try String(contentsOf: url)
+            let items = ChecklistParser.parseLines(data, list: localListName)
+            if items.isEmpty {
+                print("No reminders found in file: \(url.path)")
+            } else {
+                for item in items { print(item.description) }
+                
+                // Inform the user that no changes were made to the file
+                print("\nNote: File was only parsed, not modified. Use --rewrite to update the file or --output to write to a new file.")
+            }
         }
+        exit(0)
+    } catch {
+        fputs("Failed to process file: \(error)\n", stderr)
+        exit(3)
     }
-} catch {
-    fputs("Failed to process file: \(error)\n", stderr)
-    exit(3)
 }
+
+// Keep the process running until our Task completes
+RunLoop.main.run()

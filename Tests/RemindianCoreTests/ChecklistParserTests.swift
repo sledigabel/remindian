@@ -109,6 +109,93 @@ class ChecklistParserTests: XCTestCase {
         XCTAssertTrue(items.isEmpty)
     }
     
+    func testParseReminderInfo() {
+        // Test with reminder ID and list in the comment
+        let item1 = ChecklistItem(
+            rawLine: "- [] Task with reminder  %% ABC123-XYZ -- Personal Tasks %%",
+            checked: false,
+            title: "Task with reminder",
+            comment: "ABC123-XYZ -- Personal Tasks",
+            lineNumber: 1,
+            list: "test",
+            reminderId: nil,
+            reminderList: nil
+        )
+        
+        let (id1, list1) = item1.parseReminderInfo()
+        XCTAssertEqual(id1, "ABC123-XYZ")
+        XCTAssertEqual(list1, "Personal Tasks")
+        
+        // Test with non-matching comment
+        let item2 = ChecklistItem(
+            rawLine: "- [] Task with other comment  %% Some comment %%",
+            checked: false,
+            title: "Task with other comment",
+            comment: "Some comment",
+            lineNumber: 2,
+            list: "test",
+            reminderId: nil,
+            reminderList: nil
+        )
+        
+        let (id2, list2) = item2.parseReminderInfo()
+        XCTAssertNil(id2)
+        XCTAssertNil(list2)
+        
+        // Test with no comment
+        let item3 = ChecklistItem(
+            rawLine: "- [] Task with no comment",
+            checked: false,
+            title: "Task with no comment",
+            comment: nil,
+            lineNumber: 3,
+            list: "test",
+            reminderId: nil,
+            reminderList: nil
+        )
+        
+        let (id3, list3) = item3.parseReminderInfo()
+        XCTAssertNil(id3)
+        XCTAssertNil(list3)
+        
+        // Test withReminderInfo method
+        let updatedItem = item1.withReminderInfo()
+        XCTAssertEqual(updatedItem.reminderId, "ABC123-XYZ")
+        XCTAssertEqual(updatedItem.reminderList, "Personal Tasks")
+    }
+    
+    func testToStringWithReminderInfo() {
+        // Test with unchecked item
+        let item1 = ChecklistItem(
+            rawLine: "- [] Task with reminder",
+            checked: false,
+            title: "Task with reminder",
+            comment: nil,
+            lineNumber: 1,
+            list: "test",
+            reminderId: nil,
+            reminderList: nil
+        )
+        
+        let result1 = item1.toStringWithReminderInfo(reminderId: "ABC123", reminderList: "Personal")
+        XCTAssertEqual(result1, "- [ ] Task with reminder  %% ABC123 -- Personal %%")
+        
+        // Test with checked item
+        let item2 = ChecklistItem(
+            rawLine: "    - [x] Indented task",
+            checked: true,
+            title: "Indented task",
+            comment: "Some comment",
+            lineNumber: 2,
+            list: "test",
+            reminderId: nil,
+            reminderList: nil
+        )
+        
+        let result2 = item2.toStringWithReminderInfo(reminderId: "XYZ-789", reminderList: "Work")
+        XCTAssertEqual(result2, "    - [x] Indented task  %% XYZ-789 -- Work %%")
+    }
+    
     func testCustomListName() {
         let input = "- [] task in custom list"
         let listName = "work-H2-2025"
@@ -119,7 +206,7 @@ class ChecklistParserTests: XCTestCase {
     
     // MARK: - File Rewriting Tests
     
-    func testRewriteAddsComments() throws {
+    func testRewriteAddsComments() async throws {
         // Create a test file with no comments
         let content = """
         # Test File
@@ -132,15 +219,26 @@ class ChecklistParserTests: XCTestCase {
         let sourceFile = tempDir.appendingPathComponent("no_comments.md")
         try content.write(to: sourceFile, atomically: true, encoding: .utf8)
         
-        // Rewrite the file in place
-        let rewrittenFile = try ChecklistParser.rewriteFile(at: sourceFile)
+        // Create a mock manager that will be used for testing
+        let mockManager = MockRemindersManager()
+        
+        // Rewrite the file in place using the mock manager
+        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
         
         // Read the rewritten file
         let rewrittenContent = try String(contentsOf: rewrittenFile)
         
-        // Verify comments were added
-        XCTAssertTrue(rewrittenContent.contains("- [ ] Task without comment  %% COMMENT 1 %%"))
-        XCTAssertTrue(rewrittenContent.contains("- [x] Another task  %% COMMENT 1 %%"))
+        // Parse the content to get the reminder IDs
+        let items = ChecklistParser.parseLines(rewrittenContent)
+        XCTAssertEqual(items.count, 2)
+        
+        // Verify all items have comments with reminder IDs
+        for item in items {
+            XCTAssertNotNil(item.comment)
+            let (reminderId, reminderList) = item.parseReminderInfo()
+            XCTAssertNotNil(reminderId)
+            XCTAssertNotNil(reminderList)
+        }
         
         // Verify unrelated content is preserved
         XCTAssertTrue(rewrittenContent.contains("# Test File"))
@@ -148,11 +246,11 @@ class ChecklistParserTests: XCTestCase {
         XCTAssertTrue(rewrittenContent.contains("More text"))
     }
     
-    func testRewriteIncrementsCommentNumbers() throws {
-        // Create a test file with existing comments
+    func testRewriteHandlesExistingComments() async throws {
+        // Create a test file with existing reminder IDs and other comments
         let content = """
         # Test File
-        - [] Task with comment  %% COMMENT 1 %%
+        - [] Task with reminder ID  %% MOCK-ABC123 -- testlist %%
         - [x] Another task with comment  %% COMMENT 3 %%
         - [] Task with other comment  %% Other comment %%
         """
@@ -160,21 +258,35 @@ class ChecklistParserTests: XCTestCase {
         let sourceFile = tempDir.appendingPathComponent("with_comments.md")
         try content.write(to: sourceFile, atomically: true, encoding: .utf8)
         
+        // Create a mock manager
+        let mockManager = MockRemindersManager()
+        
+        // Pre-configure the mock manager to recognize the existing ID
+        _ = mockManager.updateReminder(id: "MOCK-ABC123", title: "Task with reminder ID", isCompleted: false)
+        
         // Rewrite the file in place
-        let rewrittenFile = try ChecklistParser.rewriteFile(at: sourceFile)
+        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
         
         // Read the rewritten file
         let rewrittenContent = try String(contentsOf: rewrittenFile)
         
-        // Verify comment numbers were incremented
-        XCTAssertTrue(rewrittenContent.contains("- [ ] Task with comment  %% COMMENT 2 %%"))
-        XCTAssertTrue(rewrittenContent.contains("- [x] Another task with comment  %% COMMENT 4 %%"))
+        // Parse the rewritten content
+        let items = ChecklistParser.parseLines(rewrittenContent)
+        XCTAssertEqual(items.count, 3)
         
-        // Verify other comments are replaced with COMMENT 1
-        XCTAssertTrue(rewrittenContent.contains("- [ ] Task with other comment  %% COMMENT 1 %%"))
+        // Verify all items have reminder IDs in their comments
+        for item in items {
+            XCTAssertNotNil(item.comment)
+            let (reminderId, reminderList) = item.parseReminderInfo()
+            XCTAssertNotNil(reminderId)
+            XCTAssertNotNil(reminderList)
+        }
+        
+        // Verify the first item still has its original ID
+        XCTAssertTrue(rewrittenContent.contains("MOCK-ABC123"))
     }
     
-    func testRewriteToOutputFile() throws {
+    func testRewriteToOutputFile() async throws {
         // Create a test file
         let content = """
         # Test File
@@ -185,8 +297,11 @@ class ChecklistParserTests: XCTestCase {
         let outputFile = tempDir.appendingPathComponent("output.md")
         try content.write(to: sourceFile, atomically: true, encoding: .utf8)
         
+        // Create a mock manager
+        let mockManager = MockRemindersManager()
+        
         // Rewrite the file to output
-        let rewrittenFile = try ChecklistParser.rewriteFile(at: sourceFile, outputURL: outputFile)
+        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, outputURL: outputFile, reminderManager: mockManager)
         
         // Check that the output file was created and is different from the source
         XCTAssertEqual(rewrittenFile.path, outputFile.path)
@@ -196,12 +311,20 @@ class ChecklistParserTests: XCTestCase {
         let sourceContent = try String(contentsOf: sourceFile)
         XCTAssertEqual(sourceContent, content)
         
-        // Output file should have comments
+        // Output file should have comments with reminder IDs
         let outputContent = try String(contentsOf: outputFile)
-        XCTAssertTrue(outputContent.contains("- [ ] Task without comment  %% COMMENT 1 %%"))
+        let items = ChecklistParser.parseLines(outputContent)
+        XCTAssertEqual(items.count, 1)
+        
+        // Verify the item has a reminder ID
+        let (reminderId, reminderList) = items[0].parseReminderInfo()
+        XCTAssertNotNil(reminderId)
+        XCTAssertNotNil(reminderList)
     }
     
-    func testUpdateReminder() {
+    func testCopyMethod() {
+        // Test the copy method
+        
         // Test with no comment
         let item1 = ChecklistItem(
             rawLine: "- [] Task without comment",
@@ -209,36 +332,32 @@ class ChecklistParserTests: XCTestCase {
             title: "Task without comment",
             comment: nil,
             lineNumber: 1,
-            list: "test"
+            list: "test",
+            reminderId: nil,
+            reminderList: nil
         )
-        let updated1 = ChecklistParser.updateReminder(item1)
-        XCTAssertEqual(updated1.comment, "COMMENT 1")
-        XCTAssertEqual(updated1.toString(), "- [ ] Task without comment  %% COMMENT 1 %%")
+        let copied1 = item1.copy()
+        XCTAssertEqual(copied1.comment, nil)
+        XCTAssertEqual(copied1.toString(), "- [ ] Task without comment")
         
-        // Test with comment that has a number
+        // Test with a comment
         let item2 = ChecklistItem(
-            rawLine: "- [x] Task with number  %% COMMENT 3 %%",
+            rawLine: "- [x] Task with comment  %% ABC123 -- Personal %%",
             checked: true,
-            title: "Task with number",
-            comment: "COMMENT 3",
+            title: "Task with comment",
+            comment: "ABC123 -- Personal",
             lineNumber: 2,
-            list: "test"
+            list: "test",
+            reminderId: "ABC123",
+            reminderList: "Personal"
         )
-        let updated2 = ChecklistParser.updateReminder(item2)
-        XCTAssertEqual(updated2.comment, "COMMENT 4")
-        XCTAssertEqual(updated2.toString(), "- [x] Task with number  %% COMMENT 4 %%")
+        let copied2 = item2.copy()
+        XCTAssertEqual(copied2.comment, "ABC123 -- Personal")
+        XCTAssertEqual(copied2.toString(), "- [x] Task with comment  %% ABC123 -- Personal %%")
         
-        // Test with comment that doesn't have a number
-        let item3 = ChecklistItem(
-            rawLine: "- [] Task with other comment  %% Other comment %%",
-            checked: false,
-            title: "Task with other comment",
-            comment: "Other comment",
-            lineNumber: 3,
-            list: "test"
-        )
-        let updated3 = ChecklistParser.updateReminder(item3)
-        XCTAssertEqual(updated3.comment, "COMMENT 1")
-        XCTAssertEqual(updated3.toString(), "- [ ] Task with other comment  %% COMMENT 1 %%")
+        // Test with a new comment
+        let copied3 = item2.copy(withComment: "XYZ789 -- Work")
+        XCTAssertEqual(copied3.comment, "XYZ789 -- Work")
+        XCTAssertEqual(copied3.toString(), "- [x] Task with comment  %% XYZ789 -- Work %%")
     }
 }

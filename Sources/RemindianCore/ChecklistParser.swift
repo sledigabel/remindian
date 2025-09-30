@@ -7,50 +7,73 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
     public let comment: String?
     public let lineNumber: Int
     public let list: String
+    public var reminderId: String?
+    public var reminderList: String?
 
     public var hasComment: Bool { comment != nil }
 
     // Backwards compatibility (tests previously referenced text)
     public var text: String { title }
 
-    // Regular expression for identifying comment numbers
-    private static let commentNumberPattern = "COMMENT (\\d+)"
-    private static let commentNumberRegex = try! NSRegularExpression(
-        pattern: commentNumberPattern, options: [])
+    // Regular expression for identifying reminder IDs and lists in comments
+    private static let reminderPattern = "([A-Z0-9-]+) -- ([^%]+)"
+    private static let reminderRegex = try! NSRegularExpression(
+        pattern: reminderPattern, options: [])
 
-    public func updateReminder() -> ChecklistItem {
-        let newComment = ChecklistItem.incrementCommentNumber(comment)
+    // Simple method to create a copy of this item
+    public func copy(withComment: String? = nil) -> ChecklistItem {
         return ChecklistItem(
             rawLine: rawLine,
             checked: checked,
             title: title,
-            comment: newComment,
+            comment: withComment ?? comment,
             lineNumber: lineNumber,
-            list: list
+            list: list,
+            reminderId: reminderId,
+            reminderList: reminderList
+        )
+    }
+    
+    public func parseReminderInfo() -> (reminderId: String?, reminderList: String?) {
+        guard let comment = comment else {
+            return (nil, nil)
+        }
+        
+        if let match = ChecklistItem.reminderRegex.firstMatch(
+            in: comment, options: [], range: NSRange(location: 0, length: comment.utf16.count)),
+           match.numberOfRanges > 2
+        {
+            let idRange = match.range(at: 1)
+            let listRange = match.range(at: 2)
+            
+            if let idSwiftRange = Range(idRange, in: comment),
+               let listSwiftRange = Range(listRange, in: comment)
+            {
+                let reminderId = String(comment[idSwiftRange])
+                let reminderList = String(comment[listSwiftRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                return (reminderId, reminderList)
+            }
+        }
+        
+        return (nil, nil)
+    }
+    
+    public func withReminderInfo() -> ChecklistItem {
+        let (reminderId, reminderList) = parseReminderInfo()
+        return ChecklistItem(
+            rawLine: rawLine,
+            checked: checked,
+            title: title,
+            comment: comment,
+            lineNumber: lineNumber,
+            list: list,
+            reminderId: reminderId,
+            reminderList: reminderList
         )
     }
 
-    private static func incrementCommentNumber(_ comment: String?) -> String {
-        guard let comment = comment else {
-            return "COMMENT 1"
-        }
 
-        if let match = commentNumberRegex.firstMatch(
-            in: comment, options: [], range: NSRange(location: 0, length: comment.utf16.count)),
-            match.numberOfRanges > 1
-        {
-            let numberRange = match.range(at: 1)
-            if let swiftRange = Range(numberRange, in: comment),
-                let number = Int(comment[swiftRange])
-            {
-                let nextNumber = number + 1
-                return "COMMENT \(nextNumber)"
-            }
-        }
-
-        // If no number pattern found or can't parse number, default to "COMMENT 1"
-        return "COMMENT 1"
-    }
 
     public var description: String {
         let status = checked ? "[x]" : "[ ]"
@@ -70,6 +93,14 @@ public struct ChecklistItem: Equatable, CustomStringConvertible {
         } else {
             return "\(indentation)- \(checkmark) \(title)"
         }
+    }
+    
+    public func toStringWithReminderInfo(reminderId: String, reminderList: String) -> String {
+        // Extract indentation from the original line
+        let indentation = String(rawLine.prefix(while: { $0 == " " || $0 == "\t" }))
+        let checkmark = checked ? "[x]" : "[ ]"
+        
+        return "\(indentation)- \(checkmark) \(title)  %% \(reminderId) -- \(reminderList) %%"
     }
 }
 
@@ -106,7 +137,7 @@ public struct ChecklistParser {
                 ? match.range(at: 3) : .init(location: NSNotFound, length: 0)
 
             let checkedToken = substring(line, range: checkedRange)
-            let checked = !checkedToken.isEmpty
+            let checked = checkedToken == "x" || checkedToken == "X"
             let title = substring(line, range: titleRange).trimmingCharacters(
                 in: .whitespacesAndNewlines)
             let comment =
@@ -117,7 +148,7 @@ public struct ChecklistParser {
             results.append(
                 ChecklistItem(
                     rawLine: line, checked: checked, title: title, comment: comment,
-                    lineNumber: idx + 1, list: list))
+                    lineNumber: idx + 1, list: list, reminderId: nil, reminderList: nil))
         }
         return results
     }
@@ -129,7 +160,7 @@ public struct ChecklistParser {
         return String(line[swiftRange])
     }
 
-    public static func rewriteFile(at url: URL, outputURL: URL? = nil) throws -> URL {
+    public static func rewriteFile(at url: URL, outputURL: URL? = nil, reminderManager: RemindersManager? = nil) async throws -> URL {
         let content = try String(contentsOf: url)
 
         // Parse the content into ChecklistItems
@@ -139,7 +170,7 @@ public struct ChecklistParser {
         // Create a dictionary of line numbers to updated items
         var updatedItemsByLine: [Int: ChecklistItem] = [:]
         for item in items {
-            let updatedItem = updateReminder(item)
+            let updatedItem = await updateReminder(item, reminderManager: reminderManager)
             updatedItemsByLine[updatedItem.lineNumber] = updatedItem
         }
 
@@ -161,7 +192,71 @@ public struct ChecklistParser {
         return destinationURL
     }
 
-    public static func updateReminder(_ item: ChecklistItem) -> ChecklistItem {
-        return item.updateReminder()
+    public static func updateReminder(_ item: ChecklistItem, reminderManager: RemindersManager? = nil) async -> ChecklistItem {
+        // Process reminders based on whether they have a reminder ID
+        let manager = reminderManager ?? RemindersManager()
+        
+        // First, ensure we have access to the Reminders app
+        guard await manager.requestAccess() else {
+            print("Failed to get access to Reminders. Unable to sync.")
+            return item // Return the original item unchanged
+        }
+        
+        // Parse existing reminder info if any
+        let (reminderId, reminderList) = item.parseReminderInfo()
+        
+        if let existingId = reminderId, let existingList = reminderList {
+            // This is an existing reminder, update it in the Reminders app
+            let success = manager.updateReminder(id: existingId, title: item.title, isCompleted: item.checked)
+            if !success {
+                print("Failed to update reminder with ID: \(existingId)")
+                // Return with the existing reminder info
+                return ChecklistItem(
+                    rawLine: item.rawLine,
+                    checked: item.checked,
+                    title: item.title,
+                    comment: item.comment,
+                    lineNumber: item.lineNumber,
+                    list: item.list,
+                    reminderId: reminderId,
+                    reminderList: reminderList
+                )
+            }
+            
+            // Return the item with the same reminder info
+            return ChecklistItem(
+                rawLine: item.rawLine,
+                checked: item.checked,
+                title: item.title,
+                comment: "\(existingId) -- \(existingList)", // Keep the existing ID and list
+                lineNumber: item.lineNumber,
+                list: item.list,
+                reminderId: existingId,
+                reminderList: existingList
+            )
+        } else {
+            // This is a new reminder or one without proper reminder info
+            // Create a new reminder in the Reminders app
+            let listToUse = item.list // Use the list from the item
+            
+            if let newId = manager.createReminder(title: item.title, in: listToUse) {
+                // Successfully created a new reminder
+                // Return the item with the new reminder ID and list
+                return ChecklistItem(
+                    rawLine: item.rawLine,
+                    checked: item.checked,
+                    title: item.title,
+                    comment: "\(newId) -- \(listToUse)", // Set the new ID and list
+                    lineNumber: item.lineNumber,
+                    list: item.list,
+                    reminderId: newId,
+                    reminderList: listToUse
+                )
+            } else {
+                // Failed to create a new reminder
+                print("Failed to create a new reminder")
+                return item // Return the original item unchanged
+            }
+        }
     }
 }

@@ -322,6 +322,47 @@ class ChecklistParserTests: XCTestCase {
         XCTAssertNotNil(reminderList)
     }
     
+    func testSyncCompletionStatusFromReminders() async throws {
+        // Create a test file with an unchecked task
+        let content = """
+        # Test File
+        - [] Task that will be completed in Reminders  %% MOCK-ABC123 -- testlist %%
+        """
+        
+        let sourceFile = tempDir.appendingPathComponent("completion_sync_test.md")
+        try content.write(to: sourceFile, atomically: true, encoding: .utf8)
+        
+        // Create a mock manager
+        let mockManager = MockRemindersManager()
+        
+        // Make sure the reminder exists in our mock system first
+        let listName = "testlist"
+        if mockManager.reminderLists[listName] == nil {
+            mockManager.reminderLists[listName] = [:]
+        }
+        mockManager.reminderLists[listName]?["MOCK-ABC123"] = "Task that will be completed in Reminders"
+        
+        // Set up the mock to recognize the existing ID and mark it as completed
+        _ = mockManager.updateReminder(id: "MOCK-ABC123", title: "Task that will be completed in Reminders", isCompleted: true)
+        
+        // Verify the mock shows the reminder as completed
+        XCTAssertTrue(mockManager.isReminderCompleted(id: "MOCK-ABC123"))
+        
+        // Rewrite the file, which should sync the completion status
+        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        
+        // Read the rewritten content
+        let rewrittenContent = try String(contentsOf: rewrittenFile)
+        
+        // Parse the rewritten content
+        let items = ChecklistParser.parseLines(rewrittenContent)
+        XCTAssertEqual(items.count, 1)
+        
+        // Verify the task is now checked in the document
+        XCTAssertTrue(items[0].checked)
+        XCTAssertTrue(rewrittenContent.contains("[x]"))
+    }
+    
     func testCopyMethod() {
         // Test the copy method
         

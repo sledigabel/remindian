@@ -3,7 +3,7 @@ import EventKit
 @testable import RemindianCore
 
 public class MockRemindersManager: RemindersManager {
-    private var reminderLists: [String: [String: String]] = [:]  // listName -> [id: title]
+    public var reminderLists: [String: [String: String]] = [:]  // listName -> [id: title]
     private var reminderCompletionStatus: [String: Bool] = [:]   // id -> isCompleted
     
     public override init() {
@@ -43,7 +43,15 @@ public class MockRemindersManager: RemindersManager {
     }
     
     public override func getReminder(byId identifier: String) -> EKReminder? {
-        return nil  // We don't need to return actual EKReminder objects for testing
+        // For testing purposes, create a minimal mock EKReminder if the ID exists
+        for (_, reminders) in reminderLists {
+            if reminders[identifier] != nil {
+                // In this mock, we're returning a non-nil value to indicate the reminder exists
+                // The actual class doesn't matter since we're only checking for nil or not
+                return EKReminder(eventStore: EKEventStore())
+            }
+        }
+        return nil
     }
     
     public override func updateReminder(id: String, title: String, isCompleted: Bool) -> Bool {
@@ -77,8 +85,8 @@ public class MockRemindersManager: RemindersManager {
         return nil
     }
     
-    public func isReminderCompleted(id: String) -> Bool? {
-        return reminderCompletionStatus[id]
+    public override func isReminderCompleted(id: String) -> Bool {
+        return reminderCompletionStatus[id] ?? false
     }
     
     public func getReminderListName(id: String) -> String? {

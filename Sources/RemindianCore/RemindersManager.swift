@@ -89,6 +89,14 @@ public class RemindersManager {
         return reminder
     }
     
+    // Check if a reminder is completed
+    public func isReminderCompleted(id: String) -> Bool {
+        guard let reminder = getReminder(byId: id) else {
+            return false
+        }
+        return reminder.completionDate != nil
+    }
+    
     // Update a reminder
     public func updateReminder(id: String, title: String, isCompleted: Bool) -> Bool {
         guard let reminder = getReminder(byId: id) else {

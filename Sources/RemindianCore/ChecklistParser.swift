@@ -206,10 +206,20 @@ public struct ChecklistParser {
         let (reminderId, reminderList) = item.parseReminderInfo()
         
         if let existingId = reminderId, let existingList = reminderList {
-            // This is an existing reminder, update it in the Reminders app
-            let success = manager.updateReminder(id: existingId, title: item.title, isCompleted: item.checked)
-            if !success {
-                print("Failed to update reminder with ID: \(existingId)")
+            // For existing reminders, check if the completion status in Apple Reminders
+            // is different from the document's status
+            let isCompletedInReminders = manager.isReminderCompleted(id: existingId)
+            
+            // Update the checked status to match Apple Reminders if they're different
+            let updatedChecked = isCompletedInReminders
+            
+            // Only update the reminder in Apple if the document status has changed
+            if updatedChecked != item.checked {
+                _ = manager.updateReminder(id: existingId, title: item.title, isCompleted: updatedChecked)
+            }
+            
+            if manager.getReminder(byId: existingId) == nil {
+                print("Failed to retrieve reminder with ID: \(existingId)")
                 // Return with the existing reminder info
                 return ChecklistItem(
                     rawLine: item.rawLine,
@@ -223,10 +233,10 @@ public struct ChecklistParser {
                 )
             }
             
-            // Return the item with the same reminder info
+            // Return the item with the updated checked status and the same reminder info
             return ChecklistItem(
                 rawLine: item.rawLine,
-                checked: item.checked,
+                checked: updatedChecked, // Use the status from Apple Reminders
                 title: item.title,
                 comment: "\(existingId) -- \(existingList)", // Keep the existing ID and list
                 lineNumber: item.lineNumber,

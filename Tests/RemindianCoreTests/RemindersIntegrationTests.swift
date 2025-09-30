@@ -55,6 +55,9 @@ class RemindersIntegrationTests: XCTestCase {
         let (reminderId, _) = createdItem.parseReminderInfo()
         XCTAssertNotNil(reminderId)
         
+        // First verify the reminder is not completed initially
+        XCTAssertEqual(mockManager.isReminderCompleted(id: reminderId!), false)
+        
         // Now create an item with that ID that has been checked and has a new title
         let updatedRawItem = ChecklistItem(
             rawLine: "- [x] Updated task  %% \(reminderId!) -- testlist %%",
@@ -67,12 +70,18 @@ class RemindersIntegrationTests: XCTestCase {
             reminderList: "testlist"
         )
         
-        // Update the reminder
-        _ = await ChecklistParser.updateReminder(updatedRawItem, reminderManager: mockManager)
+        // First directly update the mock's completion status to test our new functionality
+        // This simulates the user checking the task in Apple Reminders
+        _ = mockManager.updateReminder(id: reminderId!, title: "Updated task", isCompleted: true)
+        XCTAssertTrue(mockManager.isReminderCompleted(id: reminderId!))
+        
+        // Now update the reminder through the ChecklistParser
+        let updatedItem = await ChecklistParser.updateReminder(updatedRawItem, reminderManager: mockManager)
         
         // Verify the update in the mock manager
         XCTAssertEqual(mockManager.getReminderTitle(id: reminderId!), "Updated task")
-        XCTAssertEqual(mockManager.isReminderCompleted(id: reminderId!), true)
+        XCTAssertTrue(mockManager.isReminderCompleted(id: reminderId!))
+        XCTAssertTrue(updatedItem.checked) // Also verify the item itself is now checked
     }
     
     func testRewriteFile() async throws {

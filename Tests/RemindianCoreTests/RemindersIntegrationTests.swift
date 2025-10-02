@@ -104,7 +104,10 @@ class RemindersIntegrationTests: XCTestCase {
         _ = mockManager.updateReminder(id: "MOCK-123", title: "Task with existing ID", isCompleted: false)
         
         // Rewrite the file with our mock manager
-        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        let (rewrittenFile, wasWritten) = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        
+        // Verify the file was written
+        XCTAssertTrue(wasWritten)
         
         // Read the rewritten content
         let rewrittenContent = try String(contentsOf: rewrittenFile)

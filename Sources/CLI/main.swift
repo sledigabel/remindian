@@ -74,26 +74,31 @@ Task {
             // Rewrite to a different file
             let outputURL = URL(fileURLWithPath: outputPathValue)
             
-            let resultURL = try await ChecklistParser.rewriteFile(at: url, outputURL: outputURL)
-            print("File has been rewritten: \(resultURL.path)")
+            let (resultURL, wasWritten) = try await ChecklistParser.rewriteFile(at: url, outputURL: outputURL)
+            print("File has been written to new location: \(resultURL.path)")
             
-            // Display the reminders in the rewritten file
-            let rewrittenData = try String(contentsOf: resultURL)
-            let items = ChecklistParser.parseLines(rewrittenData, list: localListName)
+            // Display the reminders in the file
+            let fileData = try String(contentsOf: resultURL)
+            let items = ChecklistParser.parseLines(fileData, list: localListName)
             if !items.isEmpty {
-                print("\nReminders in the rewritten file:")
+                print("\nReminders in the file:")
                 for item in items { print(item.description) }
             }
         } else if shouldRewrite {
             // Rewrite the original file
-            let resultURL = try await ChecklistParser.rewriteFile(at: url)
-            print("Original file has been rewritten: \(resultURL.path)")
+            let (resultURL, wasWritten) = try await ChecklistParser.rewriteFile(at: url)
             
-            // Display the reminders in the rewritten file
-            let rewrittenData = try String(contentsOf: resultURL)
-            let items = ChecklistParser.parseLines(rewrittenData, list: localListName)
+            if wasWritten {
+                print("File has been updated: \(resultURL.path)")
+            } else {
+                print("No changes needed. File was not modified: \(resultURL.path)")
+            }
+            
+            // Display the reminders in the file
+            let fileData = try String(contentsOf: resultURL)
+            let items = ChecklistParser.parseLines(fileData, list: localListName)
             if !items.isEmpty {
-                print("\nReminders in the rewritten file:")
+                print("\nReminders in the file:")
                 for item in items { print(item.description) }
             }
         } else {

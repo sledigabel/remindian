@@ -4,7 +4,7 @@ import EventKit
 
 public class MockRemindersManager: RemindersManager {
     public var reminderLists: [String: [String: String]] = [:]  // listName -> [id: title]
-    private var reminderCompletionStatus: [String: Bool] = [:]   // id -> isCompleted
+    public var completionStatus: [String: Bool] = [:]   // id -> isCompleted (public for testing)
     
     public override init() {
         super.init()
@@ -37,7 +37,7 @@ public class MockRemindersManager: RemindersManager {
         
         let id = "MOCK-\(UUID().uuidString)"
         reminderLists[listName]?[id] = title
-        reminderCompletionStatus[id] = false
+        completionStatus[id] = false
         
         return id
     }
@@ -58,7 +58,7 @@ public class MockRemindersManager: RemindersManager {
         for (listName, _) in reminderLists {
             if reminderLists[listName]?[id] != nil {
                 reminderLists[listName]?[id] = title
-                reminderCompletionStatus[id] = isCompleted
+                completionStatus[id] = isCompleted
                 return true
             }
         }
@@ -68,7 +68,7 @@ public class MockRemindersManager: RemindersManager {
     public override func deleteReminder(id: String) -> Bool {
         for (listName, _) in reminderLists {
             if reminderLists[listName]?.removeValue(forKey: id) != nil {
-                reminderCompletionStatus.removeValue(forKey: id)
+                completionStatus.removeValue(forKey: id)
                 return true
             }
         }
@@ -86,7 +86,7 @@ public class MockRemindersManager: RemindersManager {
     }
     
     public override func isReminderCompleted(id: String) -> Bool {
-        return reminderCompletionStatus[id] ?? false
+        return completionStatus[id] ?? false
     }
     
     public func getReminderListName(id: String) -> String? {

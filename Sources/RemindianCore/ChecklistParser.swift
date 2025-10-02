@@ -160,7 +160,7 @@ public struct ChecklistParser {
         return String(line[swiftRange])
     }
 
-    public static func rewriteFile(at url: URL, outputURL: URL? = nil, reminderManager: RemindersManager? = nil) async throws -> URL {
+    public static func rewriteFile(at url: URL, outputURL: URL? = nil, reminderManager: RemindersManager? = nil) async throws -> (URL, Bool) {
         let content = try String(contentsOf: url)
 
         // Parse the content into ChecklistItems
@@ -169,8 +169,18 @@ public struct ChecklistParser {
 
         // Create a dictionary of line numbers to updated items
         var updatedItemsByLine: [Int: ChecklistItem] = [:]
+        var anyChanges = false
+        
         for item in items {
             let updatedItem = await updateReminder(item, reminderManager: reminderManager)
+            
+            // Check if this item actually changed
+            if updatedItem.checked != item.checked || 
+               (updatedItem.comment != item.comment && 
+                 (item.comment == nil || !updatedItem.comment!.contains(item.comment!))) {
+                anyChanges = true
+            }
+            
             updatedItemsByLine[updatedItem.lineNumber] = updatedItem
         }
 
@@ -187,9 +197,15 @@ public struct ChecklistParser {
 
         let rewrittenContent = rewrittenLines.joined(separator: "\n")
         let destinationURL = outputURL ?? url
-        try rewrittenContent.write(to: destinationURL, atomically: true, encoding: .utf8)
+        
+        // Only write to the file if changes were made or if we're writing to a different file
+        let shouldWrite = anyChanges || outputURL != nil
+        
+        if shouldWrite {
+            try rewrittenContent.write(to: destinationURL, atomically: true, encoding: .utf8)
+        }
 
-        return destinationURL
+        return (destinationURL, shouldWrite)
     }
 
     public static func updateReminder(_ item: ChecklistItem, reminderManager: RemindersManager? = nil) async -> ChecklistItem {

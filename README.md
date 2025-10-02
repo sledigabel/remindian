@@ -24,7 +24,7 @@ Build the project:
 make build
 ```
 
-This will create the binary in the `bin/remindian` location, which the Neovim plugin will use.
+This will create the binary in the `bin/remindian` location within the plugin directory, which the Neovim plugin will automatically detect and use.
 
 Run the CLI on a markdown file:
 

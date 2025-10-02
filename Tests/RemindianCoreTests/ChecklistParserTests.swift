@@ -223,7 +223,10 @@ class ChecklistParserTests: XCTestCase {
         let mockManager = MockRemindersManager()
         
         // Rewrite the file in place using the mock manager
-        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        let (rewrittenFile, wasWritten) = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        
+        // Verify the file was written
+        XCTAssertTrue(wasWritten)
         
         // Read the rewritten file
         let rewrittenContent = try String(contentsOf: rewrittenFile)
@@ -265,7 +268,10 @@ class ChecklistParserTests: XCTestCase {
         _ = mockManager.updateReminder(id: "MOCK-ABC123", title: "Task with reminder ID", isCompleted: false)
         
         // Rewrite the file in place
-        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        let (rewrittenFile, wasWritten) = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        
+        // Verify the file was written
+        XCTAssertTrue(wasWritten)
         
         // Read the rewritten file
         let rewrittenContent = try String(contentsOf: rewrittenFile)
@@ -301,7 +307,10 @@ class ChecklistParserTests: XCTestCase {
         let mockManager = MockRemindersManager()
         
         // Rewrite the file to output
-        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, outputURL: outputFile, reminderManager: mockManager)
+        let (rewrittenFile, wasWritten) = try await ChecklistParser.rewriteFile(at: sourceFile, outputURL: outputFile, reminderManager: mockManager)
+        
+        // Verify the file was written
+        XCTAssertTrue(wasWritten)
         
         // Check that the output file was created and is different from the source
         XCTAssertEqual(rewrittenFile.path, outputFile.path)
@@ -349,7 +358,10 @@ class ChecklistParserTests: XCTestCase {
         XCTAssertTrue(mockManager.isReminderCompleted(id: "MOCK-ABC123"))
         
         // Rewrite the file, which should sync the completion status
-        let rewrittenFile = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        let (rewrittenFile, wasWritten) = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        
+        // Verify the file was written
+        XCTAssertTrue(wasWritten)
         
         // Read the rewritten content
         let rewrittenContent = try String(contentsOf: rewrittenFile)
@@ -400,5 +412,54 @@ class ChecklistParserTests: XCTestCase {
         let copied3 = item2.copy(withComment: "XYZ789 -- Work")
         XCTAssertEqual(copied3.comment, "XYZ789 -- Work")
         XCTAssertEqual(copied3.toString(), "- [x] Task with comment  %% XYZ789 -- Work %%")
+    }
+    
+    func testNoFileRewriteWhenNoChanges() async throws {
+        // Create a test file with reminders that already have IDs
+        let content = """
+        # Test File
+        - [] Task with ID  %% MOCK-ID1 -- testlist %%
+        - [x] Completed task  %% MOCK-ID2 -- testlist %%
+        """
+        
+        let sourceFile = tempDir.appendingPathComponent("no_changes.md")
+        try content.write(to: sourceFile, atomically: true, encoding: .utf8)
+        
+        // Get the file's last modification date before rewriting
+        let attributes = try FileManager.default.attributesOfItem(atPath: sourceFile.path)
+        let modificationDateBefore = attributes[.modificationDate] as! Date
+        
+        // Give the filesystem time to update (ensures different timestamps if file is rewritten)
+        try await Task.sleep(nanoseconds: 1_000_000_000)  // Sleep for 1 second
+        
+        // Create a mock manager that knows about these IDs but won't change their status
+        let mockManager = MockRemindersManager()
+        // Setup the reminders in the mock manager
+        if mockManager.reminderLists["testlist"] == nil {
+            mockManager.reminderLists["testlist"] = [:]
+        }
+        mockManager.reminderLists["testlist"]?["MOCK-ID1"] = "Task with ID"
+        mockManager.completionStatus["MOCK-ID1"] = false
+        mockManager.reminderLists["testlist"]?["MOCK-ID2"] = "Completed task"
+        mockManager.completionStatus["MOCK-ID2"] = true
+        
+        // Rewrite the file - nothing should change
+        let (_, wasWritten) = try await ChecklistParser.rewriteFile(at: sourceFile, reminderManager: mockManager)
+        
+        // Verify the file was not rewritten
+        XCTAssertFalse(wasWritten)
+        
+        // Check that the modification date hasn't changed
+        let attributesAfter = try FileManager.default.attributesOfItem(atPath: sourceFile.path)
+        let modificationDateAfter = attributesAfter[.modificationDate] as! Date
+        
+        // The modification date should be very close to the original
+        XCTAssertEqual(modificationDateBefore.timeIntervalSince1970, 
+                       modificationDateAfter.timeIntervalSince1970, 
+                       accuracy: 0.001)  // Allow small delta for potential test framework overhead
+        
+        // Content should be unchanged
+        let fileContent = try String(contentsOf: sourceFile)
+        XCTAssertEqual(fileContent, content)
     }
 }

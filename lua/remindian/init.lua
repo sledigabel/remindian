@@ -13,6 +13,11 @@ function M.setup(opts)
     pattern = "*.md", -- Adjust the pattern as needed
     command = "lua require('remindian.reminder').trigger()",
   })
+  
+  -- Create command to manually trigger remindian
+  vim.api.nvim_create_user_command("RemindianRun", function()
+    require('remindian.reminder').run_manually()
+  end, {})
 end
 
 return M

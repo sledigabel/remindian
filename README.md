@@ -10,9 +10,9 @@ Remindian is a command-line tool that scans markdown files Obsidian in neovim. s
 
 ## TODO
 
-* [] Neovim doc
-* [] Logging
-* [] Better notification
+- [ ] Neovim doc
+- [ ] Logging
+- [ ] Better notification
 
 ## Install
 
@@ -20,7 +20,6 @@ Remindian is a command-line tool that scans markdown files Obsidian in neovim. s
 
 ```lua
   {
-    -- dir = "/Users/sebastienledigabel/dev/perso/remindian/",
     "sledigabel/remindian",
     build = "make dist",
     opts = {

@@ -12,19 +12,25 @@ function M.setup(opts)
     require("remindian.reminder").trigger()
   end
 
-  vim.b.autoread = true
   -- adding an autocmd to trigger reminders on Save
   vim.api.nvim_create_autocmd("BufWritePost", {
     pattern = "*.md", -- Adjust the pattern as needed
-    -- command = "lua require('remindian.reminder').trigger()",
     callback = function()
       vim.schedule(trigger)
     end,
   })
 
+  -- makes sure the file is re-read after being written
+  -- otherwise neovim will try to write a file that has changed.
+  vim.b.autoread = true
+  vim.api.nvim_create_autocmd({ "BufEnter", "CursorHold", "CursorHoldI", "FocusGained" }, {
+    command = "if mode() != 'c' | checktime | endif",
+    pattern = { "*" },
+  })
+
   -- Create command to manually trigger remindian
   vim.api.nvim_create_user_command("RemindianRun", function()
-    require("remindian.reminder").run_manually()
+    require("remindian.reminder").run()
   end, {})
 end
 

@@ -63,7 +63,7 @@ M.trigger = function()
 end
 
 -- Function to run remindian on demand
-M.run_manually = function()
+M.run = function()
   M.trigger()
   vim.notify("Remindian manually executed")
 end
